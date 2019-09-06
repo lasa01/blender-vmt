@@ -1,0 +1,4 @@
+__pycache__/
+
+# Installed by install.sh
+libraries/*
