@@ -2,3 +2,6 @@ __pycache__/
 
 # Installed by install.sh
 libraries/*
+
+# Packed addon
+blender-vmt.zip

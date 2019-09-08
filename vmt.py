@@ -1,6 +1,10 @@
+# Slightly inspired by https://github.com/Ganonmaster/io_texture_VTF/blob/blender280/vmt.py
+
 import bpy
 from pathlib import Path
+
 from .libraries import vdf
+from . import vtf
 
 
 class VMT:
@@ -10,49 +14,56 @@ class VMT:
         else:
             return self._get_root_path(path.parent)
 
-    def __init__(self, filepath: str, textureext: str, texturepath: Path=None):
+    def __init__(self, filepath: Path, textureext: str, texturepath: Path=None):
         self.filepath = Path(filepath)
         self.textureext = textureext
+        self.convert = textureext == ".vtf"
         if not texturepath:
             texturepath = self._get_root_path(self.filepath)
         self.texturepath = texturepath
-        kv = vdf.parse(open(filepath))
+        print("VMT: Parsing VMT file {}".format(filepath))
+        kv = vdf.parse(open(filepath), escaped=False)
         self.shader = next(iter(kv))
         self.shader_data = kv[self.shader]
         self.texture_files = dict()  # tuples, if first is string, then refers another member
-        self.texture_flags = dict()
+        self.texture_consts = dict() # const values that override textures
+        self.texture_defaults = dict() # const values that are overridden by textures
+        self.images = dict()
         for param, value in self.shader_data.items():
             param = param.lower()  # ignore case
             # Handle supported texture parameters
             if param == "$basetexture":
                 self.texture_files['base'] = (self.get_text_file(value), "rgb")
-                self.texture_flags['base'] = True
             elif (param == "$translucent" or param == "$alphatest") and int(value) == 1:
                 self.texture_files['alpha'] = ("base", "a")
-                self.texture_flags['alpha'] = True
             elif (param == "$basemapalphaphongmask" or param == "$basemapalphaenvmapmask") and int(value) == 1:
                 self.texture_files['specular'] = ("base", "a")
             elif param == "$bumpmap":
                 self.texture_files['normal'] = (self.get_text_file(value), "rgb")
                 if 'specular' not in self.texture_files:
                     self.texture_files['specular'] = ("normal", "a")
-                self.texture_flags['normal'] = True
             elif param == "$phong" and int(value) == 1:
-                self.texture_flags['specular'] = 1
+                # Estimate for source-like appearance
+                self.texture_defaults['roughness'] = 0.3
+                self.texture_defaults['specular'] = 0.5
+            elif param == "$phongexponent":
+                # Roughness needs to be inverted and converted to float
+                # Source range 0-255 is approx blender range 0.5-0
+                # Overrides textures, so goes to consts
+                self.texture_consts['roughness'] = (255 - int(value)) / 510
             elif param == "$phongexponenttexture":
                 self.texture_files['roughness'] = (self.get_text_file(value), "r")
-                self.texture_flags['roughness'] = True
             elif param == "$phongalbedotint" and int(value) == 1:
                 self.texture_files['specular_tint'] = ("roughness", "g")
-                self.texture_flags['specular_tint'] = True
             elif param == "$envmap":
-                self.texture_flags['specular'] = True
+                # Envmap probably means clearer reflections than phong
+                self.texture_defaults['roughness'] = 0.1
+                self.texture_defaults['specular'] = 0.7
             elif param == "$envmapmask":
                 self.texture_files['specular'] = (self.get_text_file(value), "rgb")
             elif param == "$selfillum" and int(value) == 1:
                 if 'emission' not in self.texture_files:
                     self.texture_files['emission'] = ("base", "a")
-                self.texture_flags['emission'] = True
             elif param == "$selfillummask":
                 self.texture_files['emission'] = (self.get_text_file(value), "rgb")
 
@@ -67,8 +78,12 @@ class VMT:
         if mat:
             if not override:
                 return False
+            if mat.use_nodes:
+                for node in mat.node_tree.nodes:
+                    mat.node_tree.nodes.remove(node)
         else:
             mat = bpy.data.materials.new(mat_name)
+        print("VMT: Building material")
         mat.use_nodes = True
         nodes = mat.node_tree.nodes
         links = mat.node_tree.links
@@ -81,6 +96,8 @@ class VMT:
             bsdf = nodes.new('ShaderNodeBsdfPrincipled')
         bsdf.location = (-500, 0)
         links.new(bsdf.outputs['BSDF'], out.inputs['Surface'])
+        bsdf.inputs['Specular'].default_value = 0.1
+        bsdf.inputs['Roughness'].default_value = 1.0
         texnodes = dict()
         separatornodes = dict()
         # Where different textures are connected
@@ -95,32 +112,39 @@ class VMT:
         }
         texnodelocationy = 300
         for name in texnames:
-            if self.texture_flags.get(name, None):
+            if name in self.texture_consts:
+                # No texture, but a constant value
+                # Overrides possible texture value
+                print("VMT: Overriding {} with constant value".format(name))
+                bsdf.inputs[texnames[name]].default_value = self.texture_consts[name]
+            elif name in self.texture_files:
                 pair = self.texture_files[name]
                 filepath = pair[0]
                 tex = None
                 texname = None
                 if type(filepath) is str:
                     # Relative reference, solve it
-                    # If the filepath is relative, it might already have a node, so check it
+                    # The texture might already have a node, so check it
                     texname = filepath
-                    if texnodes.get(filepath, None):
-                        tex = texnodes[filepath]
+                    if texnodes.get(texname, None):
+                        tex = texnodes[texname]
                     else:
                         filepath = self.texture_files[filepath][0]
                 else:
                     texname = name
-                    if texnodes.get(name, None):
-                        tex = texnodes[name]
+                    if texnodes.get(texname, None):
+                        tex = texnodes[texname]
                 # Create texture node if not already created
                 if not tex:
                     tex = nodes.new('ShaderNodeTexImage')
-                    tex.image = bpy.data.images.load(str(filepath), check_existing=True)
+                    tex.image = self._load_image(filepath)
                     # Set to non-color data for other images than base color
                     if texname == "base":
                         tex.image.colorspace_settings.name = "sRGB"
                     else:
                         tex.image.colorspace_settings.name = "Non-Color"
+                    # Alpha channel has always seperate data
+                    tex.image.alpha_mode = "CHANNEL_PACKED"
                     tex.location = (-1000, texnodelocationy)
                     texnodelocationy -= 300
                     texnodes[texname] = tex
@@ -144,6 +168,7 @@ class VMT:
                         separatornodes[texname] = separator
                     out_node = separator
                     out = out_type.upper()
+                # Special cases
                 if name == "normal":
                     # Need to create a normal map node
                     normal = nodes.new("ShaderNodeNormalMap")
@@ -151,12 +176,36 @@ class VMT:
                     links.new(out_node.outputs[out], normal.inputs['Color'])
                     out_node = normal
                     out = "Normal"
-                if name == "roughness":
+                elif name == "roughness":
                     # Need to invert value since source format is different
-                    invert = nodes.new("ShaderNodeInvert")
+                    # And multiply by 0.5 for more accurate results
+                    invert = nodes.new("ShaderNodeMath")
+                    invert.operation = 'SUBTRACT'
+                    invert.inputs[0].default_value = 1.0
                     invert.location = (-750, tex.location[1] - 150)
-                    links.new(out_node.outputs[out], invert.inputs['Color'])
-                    out_node = invert
-                    out = "Color"
+                    links.new(out_node.outputs[out], invert.inputs[1])
+                    multiply = nodes.new("ShaderNodeMath")
+                    multiply.operation = 'MULTIPLY'
+                    multiply.inputs[1].default_value = 0.5
+                    multiply.location = (-750, tex.location[1] - 300)
+                    links.new(invert.outputs[0], multiply.inputs[0])
+                    texnodelocationy -= 150
+                    out_node = multiply
+                    out = 0
                 links.new(out_node.outputs[out], bsdf.inputs[texnames[name]])
+            elif name in self.texture_defaults:
+                bsdf.inputs[texnames[name]].default_value = self.texture_defaults[name]
         return True
+    
+    def _load_image(self, path: Path) -> bpy.types.Image:
+        if path not in self.images:
+            print("VMT: Loading texture {}".format(path))
+            if self.convert:
+                if path.stem in bpy.data.images:
+                    result = bpy.data.images[path.stem]
+                else:
+                    result = vtf.import_image(path)
+                self.images[path] = result
+            else:
+                self.images[path] = bpy.data.images.load(str(path), check_existing=True)
+        return self.images[path]
