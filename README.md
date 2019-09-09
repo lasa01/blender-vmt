@@ -52,7 +52,7 @@ You can specify this in the options.
 There is also an option to rename the materials to their original names.
 
 ### Source Tools Models Materials Importer
-´F3 -> Import materials for Source Models´
+`F3 -> Import materials for Source Models`
 
 [Blender Source Tools](http://steamreview.org/BlenderSourceTools/) can be used to import Source Engine models.
 However, it cannot import materials and instead creates empty materials with random colors.
