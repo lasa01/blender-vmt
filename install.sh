@@ -1,3 +1,4 @@
+mkdir -p ./libraries
 pip install -t ./libraries vdf
 # fix a bad reference in vdf
 sed -i 's/vdf.vdict/.vdict/g' libraries/vdf/__init__.py
