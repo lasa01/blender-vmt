@@ -3,6 +3,12 @@ Tools for importing Source Engine material (.vmt) files into Blender
 
 Blender 2.80 only
 
+## Installation
+1. Clone the repository.
+2. Run `install.sh`. (You can use Git Bash under Windows.)
+3. Run `python pack_addon.py`.
+4. Install the addon .zip file in Blender.
+
 ## Features
 
 ### VTF Importer
@@ -78,6 +84,26 @@ The addon will search the materials directory for corresponding .vmt files.
 If there are multiple .vmt files found for the same material, the first one is used.
 Some directories that contain false positives (gui elements or weapon skin files) are excluded from the search.
 
+### Currently supported .mtl parameters
+All parameters are mapped to a Principled BSDF node.
+
+- `$basetexture` -> Base Texture
+- `$translucent` -> Enables Alpha (basetexture alpha channel)
+- `$alphatest` -> Enables Alpha (basetexture alpha channel)
+- `$bumpmap` -> Normal Map
+- `$phong` -> Specular to 0.5 (or bumpmap alpha channel) and Roughness to 0.3
+- `$basemapalphaphongmask` -> Basetexture alpha to Specular
+- `$basemapalphaenvmapmask` -> Basetexture alpha to Specular
+- `$phongexponent` -> Inverted Roughness * 0.5
+- `$phongexponenttexture`-> Inverted Roughness * 0.5 (red channel)
+- `$phongalbedotint` -> Enables Specular Tint (phongexponenttexture green channel)
+- `$envmap` -> Specular to 0.7 and Roughness to 0.1
+- `$envmapmask` -> Specular
+- `$selfillum` -> Enables Emission (basetexture alpha channel)
+- `$selfillummask` -> Emission
+
+Other parameters are ignored.
+
 ## Troubleshooting
 Open console in Blender to see the error messages the addon generates.
 
@@ -89,9 +115,3 @@ If you get unexpected end of file when parsing materials, the .mtl file probably
 To fix this, open the .mtl file and navigate to the line that caused the error.
 If the line has no relevant data (such as an empty block {}), you can safely delete it.
 If the line specifies relevant data, try surrounding both the key and the value in double quotes (""), in case they aren't already.
-
-## Installation
-1. Clone the repository.
-2. Run `install.sh`. (You can use Git Bash under Windows.)
-3. Run `python pack_addon.py`
-4. Install the addon .zip file in Blender
