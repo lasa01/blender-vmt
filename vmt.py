@@ -29,12 +29,20 @@ class VMT:
         self.texture_consts = dict() # const values that override textures
         self.texture_defaults = dict() # const values that are overridden by textures
         self.images = dict()
+        self.blend_method = "OPAQUE"
+        self.shadow_method = "OPAQUE"
         for param, value in self.shader_data.items():
             param = param.lower()  # ignore case
             # Handle supported texture parameters
             if param == "$basetexture":
                 self.texture_files['base'] = (self.get_text_file(value), "rgb")
-            elif (param == "$translucent" or param == "$alphatest") and int(value) == 1:
+            elif (param == "$translucent") and int(value) == 1:
+                self.blend_method = "BLEND"
+                self.shadow_method = "CLIP"
+                self.texture_files['alpha'] = ("base", "a")
+            elif (param == "$alphatest") and int(value) == 1:
+                self.blend_method = "CLIP"
+                self.shadow_method = "CLIP"
                 self.texture_files['alpha'] = ("base", "a")
             elif (param == "$basemapalphaphongmask" or param == "$basemapalphaenvmapmask") and int(value) == 1:
                 self.texture_files['specular'] = ("base", "a")
@@ -85,6 +93,8 @@ class VMT:
             mat = bpy.data.materials.new(mat_name)
         print("VMT: Building material")
         mat.use_nodes = True
+        mat.blend_method = self.blend_method
+        mat.shadow_method = self.shadow_method
         nodes = mat.node_tree.nodes
         links = mat.node_tree.links
         out = nodes.get('Material Output', None)
