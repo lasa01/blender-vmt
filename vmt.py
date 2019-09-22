@@ -129,7 +129,11 @@ class VMT:
                     if texnodes.get(texname, None):
                         tex = texnodes[texname]
                     else:
-                        filepath = self.texture_files[filepath][0]
+                        relativepair = self.texture_files.get(filepath)
+                        if not relativepair:
+                            print("VMT: Referenced texture {} not found".format(filepath))
+                            continue
+                        filepath = relativepair[0]
                 else:
                     texname = name
                     if texnodes.get(texname, None):
