@@ -1,6 +1,8 @@
 # blender-vmt
 Tools for importing Source Engine material (.vmt) files into Blender
 
+## Deprecated. See [io_import_vmf](https://github.com/lasa01/io_import_vmf).
+
 Blender 2.80 only
 
 ## Installation
